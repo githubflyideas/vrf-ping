@@ -242,11 +242,11 @@ func newMux(cfg *Config, store *Store, users map[string]string) http.Handler {
 		}
 		if r.Method != http.MethodPut {
 			w.Header().Set("Allow", "GET, PUT")
-			http.Error(w, "GET or PUT only", 405)
+			http.Error(w, "GET or PUT only", http.StatusMethodNotAllowed)
 			return
 		}
 		if len(users) == 0 {
-			http.Error(w, "Routing is read-only: configure login users to edit.", 403)
+			http.Error(w, "Routing is read-only: configure login users to edit.", http.StatusForbidden)
 			return
 		}
 		// Require an explicit browser same-origin signal. Do not trust forwarded
@@ -257,16 +257,16 @@ func newMux(cfg *Config, store *Store, users map[string]string) http.Handler {
 			scheme = "https"
 		}
 		if err != nil || origin.Scheme != scheme || origin.Host != r.Host || origin.User != nil || origin.Path != "" || origin.RawQuery != "" || origin.Fragment != "" {
-			http.Error(w, "same-origin request required", 403)
+			http.Error(w, "same-origin request required", http.StatusForbidden)
 			return
 		}
 		if site := r.Header.Get("Sec-Fetch-Site"); site != "" && site != "same-origin" {
-			http.Error(w, "same-origin request required", 403)
+			http.Error(w, "same-origin request required", http.StatusForbidden)
 			return
 		}
 		media, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
 		if err != nil || media != "application/json" {
-			http.Error(w, "application/json required", 415)
+			http.Error(w, "application/json required", http.StatusUnsupportedMediaType)
 			return
 		}
 		var body struct {

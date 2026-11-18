@@ -642,14 +642,3 @@ func (s *Store) Retention(days int) {
 }
 
 func round2(f float64) float64 { return float64(int(f*100+0.5)) / 100 }
-
-func fmtDur(d time.Duration) string {
-	d = d.Round(time.Minute)
-	if d < time.Hour {
-		return fmt.Sprintf("%dm", int(d.Minutes()))
-	}
-	if d < 24*time.Hour {
-		return fmt.Sprintf("%dh%dm", int(d.Hours()), int(d.Minutes())%60)
-	}
-	return fmt.Sprintf("%dd%dh", int(d.Hours())/24, int(d.Hours())%24)
-}
