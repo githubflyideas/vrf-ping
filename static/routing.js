@@ -9,7 +9,14 @@ const routingEditor = (() => {
   async function request(url, options) {
     const response = await fetch(url, options);
     if (response.status === 401) { location.href = '/login'; throw new Error('Session expired'); }
-    if (!response.ok) throw new Error((await response.text()).trim() || `HTTP ${response.status}`);
+    if (!response.ok) {
+      // Errors are {"error": message, "code": ...} (docs/API.md rule 4); show the
+      // message. Plain text from anything in between (a proxy) is shown as it is.
+      const text = (await response.text()).trim();
+      let msg = text;
+      try { const j = JSON.parse(text); if (j && typeof j.error === 'string') msg = j.error; } catch (e) { /* not JSON */ }
+      throw new Error(msg || `HTTP ${response.status}`);
+    }
     return response.json();
   }
   async function select(name) {

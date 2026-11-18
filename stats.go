@@ -4,7 +4,6 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/binary"
-	"encoding/json"
 	"log"
 	"net/http"
 	"os"
@@ -95,12 +94,6 @@ type errStr string
 
 func (e errStr) Error() string { return string(e) }
 
-func statsErr(w http.ResponseWriter, code int, msg string) {
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.WriteHeader(code)
-	json.NewEncoder(w).Encode(map[string]string{"error": msg})
-}
-
 // registerStats adds GET /api/stats when --zabbix gave a token, and nothing
 // otherwise.
 func registerStats(mux *http.ServeMux, token string, cfg *Config, store *Store) {
@@ -108,17 +101,12 @@ func registerStats(mux *http.ServeMux, token string, cfg *Config, store *Store) 
 		return
 	}
 	throttle := newLoginThrottle() // wrong tokens are guesses too
-	mux.HandleFunc("/api/stats", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /api/stats", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
-		if r.Method != http.MethodGet && r.Method != http.MethodHead {
-			w.Header().Set("Allow", "GET")
-			statsErr(w, http.StatusMethodNotAllowed, "read-only")
-			return
-		}
 		key := loginClientKey(r)
 		if wait, ok := throttle.begin(key); !ok {
 			w.Header().Set("Retry-After", retryAfter(wait))
-			statsErr(w, http.StatusTooManyRequests, "too many failed attempts")
+			jsonErr(w, http.StatusTooManyRequests, "too many failed attempts")
 			return
 		}
 		got, isBearer := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
@@ -126,7 +114,7 @@ func registerStats(mux *http.ServeMux, token string, cfg *Config, store *Store) 
 			if lock := throttle.fail(key); lock > 0 {
 				log.Printf("stats: bad token from %s; address locked for %v", r.RemoteAddr, lock)
 			}
-			statsErr(w, http.StatusUnauthorized, "unauthorized")
+			jsonErr(w, http.StatusUnauthorized, "bad or missing token")
 			return
 		}
 		throttle.success(key)

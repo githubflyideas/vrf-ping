@@ -96,7 +96,7 @@ func limiter(n int, wait time.Duration) func(http.HandlerFunc) http.HandlerFunc 
 				return
 			case <-t.C:
 				w.Header().Set("Retry-After", "5")
-				http.Error(w, `{"error":"busy"}`, http.StatusServiceUnavailable)
+				jsonErr(w, http.StatusServiceUnavailable, "busy: too many requests in flight, try again shortly")
 				return
 			}
 			defer func() { <-slots }()
@@ -125,7 +125,7 @@ func newMux(cfg *Config, store *Store, users map[string]string) http.Handler {
 	guard := func(h http.HandlerFunc) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
 			if !authed(r) { // before the limiter: unauthenticated requests never hold a slot
-				http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+				jsonErr(w, http.StatusUnauthorized, "sign in first")
 				return
 			}
 			limit(func(w http.ResponseWriter, r *http.Request) {
@@ -148,27 +148,22 @@ func newMux(cfg *Config, store *Store, users map[string]string) http.Handler {
 	}
 	index := page("index.html")
 
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/" {
-			http.NotFound(w, r)
-			return
-		}
+	// Pages are bound to GET like every endpoint, so the router itself can tell a
+	// wrong method (405) from a wrong path (404); a catch-all "/" would answer
+	// every request it does not recognise with 404, API calls included.
+	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
 		if !authed(r) {
 			http.Redirect(w, r, "/login", http.StatusFound)
 			return
 		}
 		index(w, r)
 	})
-	mux.HandleFunc("/login", page("login.html"))
-	mux.Handle("/static/", http.FileServer(http.FS(staticFS)))
+	mux.HandleFunc("GET /login", page("login.html"))
+	mux.Handle("GET /static/", http.FileServer(http.FS(staticFS)))
 
 	// login: constant-time compare, 1s delay on failure, and a per-address lockout
 	// after repeated failures (see loginthrottle.go).
-	mux.HandleFunc("/api/login", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			http.Error(w, "POST only", http.StatusMethodNotAllowed)
-			return
-		}
+	mux.HandleFunc("POST /api/login", func(w http.ResponseWriter, r *http.Request) {
 		key := loginClientKey(r)
 		if wait, ok := throttle.begin(key); !ok {
 			w.Header().Set("Content-Type", "application/json; charset=utf-8")
@@ -188,7 +183,7 @@ func newMux(cfg *Config, store *Store, users map[string]string) http.Handler {
 			} else {
 				log.Printf("web login failed from %s", r.RemoteAddr)
 			}
-			http.Error(w, `{"error":"auth"}`, http.StatusUnauthorized)
+			jsonErr(w, http.StatusUnauthorized, "wrong username or password")
 			return
 		}
 		throttle.success(key)
@@ -196,7 +191,7 @@ func newMux(cfg *Config, store *Store, users map[string]string) http.Handler {
 			Path: "/", HttpOnly: true, MaxAge: int(sessionTTL.Seconds()), SameSite: http.SameSiteLaxMode})
 		writeJSON(w, map[string]bool{"ok": true})
 	})
-	mux.HandleFunc("/api/logout", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("POST /api/logout", func(w http.ResponseWriter, r *http.Request) {
 		if c, err := r.Cookie(sessionCookie); err == nil {
 			sess.revoke(c.Value) // otherwise the token stays valid until it expires
 		}
@@ -204,18 +199,18 @@ func newMux(cfg *Config, store *Store, users map[string]string) http.Handler {
 		writeJSON(w, map[string]bool{"ok": true})
 	})
 
-	mux.HandleFunc("/api/version", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /api/version", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, map[string]string{"version": version})
 	})
 
 	// health: whether the target lists are applied in full. Same gate as the data:
 	// the messages quote list lines, which name the hosts this machine watches.
-	mux.HandleFunc("/api/health", guard(func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /api/health", guard(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
 		writeJSON(w, cfg.Health.report())
 	}))
 
-	mux.HandleFunc("/api/routing-options", guard(func(w http.ResponseWriter, r *http.Request) {
+	routingOptions := func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
 		if r.Method == http.MethodGet {
 			name := r.URL.Query().Get("target")
@@ -225,7 +220,7 @@ func newMux(cfg *Config, store *Store, users map[string]string) http.Handler {
 					options, err := readRoutingOptions(cfg.TargetsDir)
 					routingOptionsMu.Unlock()
 					if err != nil {
-						http.Error(w, "cannot read routing options", http.StatusInternalServerError)
+						jsonErr(w, http.StatusInternalServerError, "cannot read routing options")
 						return
 					}
 					saved := target
@@ -237,16 +232,11 @@ func newMux(cfg *Config, store *Store, users map[string]string) http.Handler {
 					return
 				}
 			}
-			http.Error(w, "target not found", http.StatusNotFound)
-			return
-		}
-		if r.Method != http.MethodPut {
-			w.Header().Set("Allow", "GET, PUT")
-			http.Error(w, "GET or PUT only", http.StatusMethodNotAllowed)
+			jsonErr(w, http.StatusNotFound, "target not found")
 			return
 		}
 		if len(users) == 0 {
-			http.Error(w, "Routing is read-only: configure login users to edit.", http.StatusForbidden)
+			jsonErr(w, http.StatusForbidden, "Routing is read-only: configure login users to edit.")
 			return
 		}
 		// Require an explicit browser same-origin signal. Do not trust forwarded
@@ -257,16 +247,16 @@ func newMux(cfg *Config, store *Store, users map[string]string) http.Handler {
 			scheme = "https"
 		}
 		if err != nil || origin.Scheme != scheme || origin.Host != r.Host || origin.User != nil || origin.Path != "" || origin.RawQuery != "" || origin.Fragment != "" {
-			http.Error(w, "same-origin request required", http.StatusForbidden)
+			jsonErr(w, http.StatusForbidden, "same-origin request required")
 			return
 		}
 		if site := r.Header.Get("Sec-Fetch-Site"); site != "" && site != "same-origin" {
-			http.Error(w, "same-origin request required", http.StatusForbidden)
+			jsonErr(w, http.StatusForbidden, "same-origin request required")
 			return
 		}
 		media, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
 		if err != nil || media != "application/json" {
-			http.Error(w, "application/json required", http.StatusUnsupportedMediaType)
+			jsonErr(w, http.StatusUnsupportedMediaType, "application/json required")
 			return
 		}
 		var body struct {
@@ -275,7 +265,7 @@ func newMux(cfg *Config, store *Store, users map[string]string) http.Handler {
 			SourceAddress *string `json:"source_address"`
 		}
 		if err := decodeRoutingJSON(http.MaxBytesReader(w, r.Body, 8192), &body); err != nil || body.Name == "" || body.VRF == nil || body.SourceAddress == nil {
-			http.Error(w, "expected name, vrf and source_address JSON fields", 400)
+			jsonErr(w, http.StatusBadRequest, "expected name, vrf and source_address JSON fields")
 			return
 		}
 		routingOptionsMu.Lock()
@@ -289,12 +279,12 @@ func newMux(cfg *Config, store *Store, users map[string]string) http.Handler {
 			}
 		}
 		if found < 0 {
-			http.Error(w, "target not found", 404)
+			jsonErr(w, http.StatusNotFound, "target not found")
 			return
 		}
 		options, err := readRoutingOptions(cfg.TargetsDir)
 		if err != nil {
-			http.Error(w, "cannot read routing options", 500)
+			jsonErr(w, http.StatusInternalServerError, "cannot read routing options")
 			return
 		}
 		// The running snapshot can lag earlier saves. Validate the complete
@@ -309,19 +299,22 @@ func newMux(cfg *Config, store *Store, users map[string]string) http.Handler {
 		targets[found].SourceAddress = *body.SourceAddress
 		candidate := &Config{Targets: targets, Probe: cfg.Probe}
 		if err := validateTargets(candidate); err != nil {
-			http.Error(w, err.Error(), 400)
+			jsonErr(w, http.StatusBadRequest, err.Error())
 			return
 		}
 		options[body.Name] = routingOption{VRF: *body.VRF, SourceAddress: *body.SourceAddress}
 		if err := writeRoutingOptions(cfg.TargetsDir, options); err != nil {
-			http.Error(w, "cannot persist routing options", 500)
+			jsonErr(w, http.StatusInternalServerError, "cannot persist routing options")
 			return
 		}
 		// The existing reload loop owns probe replacement, not this handler.
 		writeJSON(w, map[string]any{"saved": true, "pending_reload": true, "target": targets[found]})
-	}))
+	}
+	// One handler, bound to exactly the two methods it serves.
+	mux.HandleFunc("GET /api/routing-options", guard(routingOptions))
+	mux.HandleFunc("PUT /api/routing-options", guard(routingOptions))
 
-	mux.HandleFunc("/api/targets", guard(func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /api/targets", guard(func(w http.ResponseWriter, r *http.Request) {
 		now := time.Now()
 		type item struct {
 			Name          string `json:"name"`
@@ -367,7 +360,7 @@ func newMux(cfg *Config, store *Store, users map[string]string) http.Handler {
 
 	// raw rounds for smoke. Supports either minutes=N (recent window) or from/to unix
 	// (arbitrary range). No thinning: every sample is returned as stored.
-	mux.HandleFunc("/api/series", guard(func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /api/series", guard(func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
 		name := q.Get("target")
 		from, _ := strconv.ParseInt(q.Get("from"), 10, 64)
@@ -385,7 +378,7 @@ func newMux(cfg *Config, store *Store, users map[string]string) http.Handler {
 
 	registerStats(mux, cfg.ZabbixToken, cfg, store)
 
-	return securityHeaders(mux)
+	return securityHeaders(apiRules(mux))
 }
 
 func targetAddr(t TargetCfg) string {
@@ -393,9 +386,4 @@ func targetAddr(t TargetCfg) string {
 		return t.Host + ":" + strconv.Itoa(t.Port)
 	}
 	return t.Host
-}
-
-func writeJSON(w http.ResponseWriter, v any) {
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	json.NewEncoder(w).Encode(v)
 }
