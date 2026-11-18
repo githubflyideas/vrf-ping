@@ -80,12 +80,8 @@ func TestEmbeddedWebBranding(t *testing.T) {
 		{"/", []string{
 			"<title>vrf-ping — link quality oscilloscope</title>",
 			`<h1 class="mark">vrf-ping `,
-			"LIKE VRF-PING?",
-			"vrf-ping — a single-binary link quality oscilloscope.",
-			"vrf-ping — modern SmokePing alternative",
-			"vrf-ping — single-binary link quality oscilloscope",
-			"https://github.com/githubflyideas/vrf-ping#sponsor",
-			"const url = 'https://github.com/githubflyideas/vrf-ping';",
+			"vrf-ping on GitHub",
+			`id="ver"`,
 		}},
 		{"/login", []string{
 			"<title>Sign in — vrf-ping</title>",
@@ -133,5 +129,30 @@ func TestBrandingPreservesProbeAndStorageCompatibility(t *testing.T) {
 	}
 	if icmpMagic != "pingpingv1!" {
 		t.Fatalf("existing probe signature changed: %q", icmpMagic)
+	}
+}
+
+// The console has no advertising and no share buttons: its footer is one line,
+// the project name and version on the left and a link to the repository on the
+// right, and nothing on the page loads from outside.
+func TestNoAdsNoShareButtons(t *testing.T) {
+	entries, err := os.ReadDir("static")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if e.IsDir() {
+			t.Errorf("static/%s: unexpected directory (ad images used to live in static/ads)", e.Name())
+			continue
+		}
+		if e.Name() == "echarts.min.js" {
+			continue // a vendored library
+		}
+		b, _ := os.ReadFile("static/" + e.Name())
+		for _, bad := range []string{"sponsor", "Sponsor", "SPONSOR", "Powered by", "shareLinks", "twitter.com/intent", "facebook.com/sharer", "news.ycombinator.com/submitlink", "/static/ads/"} {
+			if strings.Contains(string(b), bad) {
+				t.Errorf("static/%s contains %q", e.Name(), bad)
+			}
+		}
 	}
 }

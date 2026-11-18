@@ -123,20 +123,16 @@
   #conclusion { color:var(--ink); font-family:var(--mono); font-weight:600;
                 font-size:var(--fs-body); }
   .legend { color:var(--dim); font-family:var(--sans); font-size:var(--fs-small); }
-  .promos { display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-top:16px; }
-  @media (max-width:720px) { .promos { grid-template-columns:1fr; } }
-  .promo { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:14px 16px;
+  .site-foot { margin-top:16px; }
+  .foot-card { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:14px 16px;
            box-shadow:var(--shadow); text-decoration:none; display:block; }
-  .promo.sponsor { border-style:dashed; }
-  .promo.sponsor:hover { border-color:var(--phos); }
-  .promo-h { font-family:var(--sans); font-size:var(--fs-micro); font-weight:700;
+  .foot-name { font-family:var(--sans); font-size:var(--fs-micro); font-weight:700;
              letter-spacing:.16em; color:var(--dim); margin-bottom:7px; text-transform:uppercase; }
-  .promo-b { color:var(--ink); font-size:var(--fs-body); }
-  .share .promo-b { display:flex; gap:14px; align-items:center; flex-wrap:wrap; }
-  .share a { color:var(--phos); text-decoration:none; font-weight:600; }
-  .share a:hover { text-decoration:underline; }
-  .share-links { display:flex; gap:12px; }
-  .share-links a { color:var(--dim); font-weight:500; }
+  .foot-body { color:var(--ink); font-size:var(--fs-body); display:flex; gap:16px;
+             align-items:center; justify-content:space-between; flex-wrap:wrap; }
+  .foot-body a { color:var(--phos); text-decoration:none; font-weight:600; white-space:nowrap; }
+  .foot-body a:hover { text-decoration:underline; }
+  .foot-name #ver { color:var(--phos); font-family:var(--mono); letter-spacing:0; font-weight:600; }
 #routingEditor summary { cursor:pointer; }
   #routingEditor input { max-width:100%; padding:7px; background:var(--screen); color:var(--ink); border:1px solid var(--ctl); border-radius:4px; font:inherit; }
   #routingEditor button:disabled { opacity:.5; cursor:default; }
@@ -159,8 +155,8 @@
   .rng { flex-wrap:wrap; max-width:100%; }
   .rng.custom { border-color:var(--ctl); }
   .rng.custom input { min-width:0; max-width:100%; }
-  .promo-b a, .share a, .share-links a { display:inline-flex; align-items:center; min-height:24px; min-width:24px; justify-content:center; }
-  .share .promo-b, .share-links { flex-wrap:wrap; }
+  .foot-body a { display:inline-flex; align-items:center; min-height:24px; }
+  .foot-body > span { flex-wrap:wrap; max-width:100%; }
   #routingEditor summary { min-height:24px; display:list-item; }
 </style>
 </head>
@@ -241,17 +237,13 @@
   <span class="legend">Line = per-round median · Smoke = all samples · Red bars = loss% · ◆ = burst</span>
 </footer>
 
-<div class="promos">
-  <a class="promo sponsor" id="sponsorSlot" href="https://github.com/githubflyideas/vrf-ping#sponsor" target="_blank" rel="noopener">
-    <div class="promo-h">SPONSOR</div>
-    <div class="promo-b">This slot is for one VPS / IDC / network sponsor. Your GIF here — reach out on GitHub.</div>
-  </a>
-  <div class="promo share">
-    <div class="promo-h">LIKE VRF-PING? <span id="ver" style="color:var(--phos)"></span></div>
-    <div class="promo-b">
-      <a href="https://github.com/githubflyideas/vrf-ping" target="_blank" rel="noopener">★ Star on GitHub</a>
-      <a href="https://github.com/githubflyideas/fogping" target="_blank" rel="noopener">Powered by Fogping</a>
-      <span class="share-links" id="shareLinks"></span>
+<div class="site-foot">
+  <div class="foot-card">
+    <div class="foot-body">
+      <span class="foot-name" style="margin:0">vrf-ping <span id="ver"></span></span>
+      <span style="display:flex; gap:16px; align-items:center;">
+        <a href="https://github.com/githubflyideas/vrf-smogping" target="_blank" rel="noopener">vrf-ping on GitHub</a>
+      </span>
     </div>
   </div>
 </div>
@@ -540,33 +532,11 @@ async function loadHealth() {
 loadHealth();
 setInterval(loadHealth, 10000);
 
-// 分享的是公开项目主页,不是本地私有面板
+// 版本号显示在底部条
 fetch('/api/version').then(r => r.json()).then(d => {
   const el = document.getElementById('ver');
   if (el && d.version) el.textContent = 'v' + d.version.replace(/^v/, '');
 }).catch(() => {});
-
-(function buildShare() {
-  const url = 'https://github.com/githubflyideas/vrf-ping';
-  const text = 'vrf-ping — a single-binary link quality oscilloscope. One binary. One graph. One metric: Latency.';
-  const links = {
-    X: `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(url)}`,
-    Facebook: `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(url)}`,
-    Reddit: `https://www.reddit.com/submit?url=${encodeURIComponent(url)}&title=${encodeURIComponent('vrf-ping — modern SmokePing alternative')}`,
-    HN: `https://news.ycombinator.com/submitlink?u=${encodeURIComponent(url)}&t=${encodeURIComponent('vrf-ping — single-binary link quality oscilloscope')}`
-  };
-  const box = document.getElementById('shareLinks');
-  Object.entries(links).forEach(([k, href]) => {
-    const a = document.createElement('a');
-    a.href = href; a.target = '_blank'; a.rel = 'noopener'; a.textContent = k;
-    box.appendChild(a);
-  });
-  const ig = document.createElement('a');
-  ig.href = '#'; ig.textContent = 'Instagram (copy link)';
-  ig.onclick = e => { e.preventDefault(); navigator.clipboard && navigator.clipboard.writeText(url);
-    ig.textContent = 'link copied ✓'; setTimeout(() => ig.textContent = 'Instagram (copy link)', 1500); };
-  box.appendChild(ig);
-})();
 
 render();
 setInterval(() => { if (!rendering) render(); }, 60000); // 慢查询进行中时跳过本次自动刷新
