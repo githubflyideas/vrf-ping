@@ -17,6 +17,7 @@ import (
 // Probe defaults remain constants. Targets come from lists, with optional
 // per-target routing overrides persisted by the authenticated Web UI.
 type Config struct {
+	ZabbixToken   string // --zabbix: non-empty turns on GET /api/stats (stats.go)
 	Listen        string
 	DataDir       string
 	TargetsDir    string

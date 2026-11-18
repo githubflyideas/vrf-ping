@@ -383,6 +383,8 @@ func newMux(cfg *Config, store *Store, users map[string]string) http.Handler {
 		writeJSON(w, store.ReadRange(r.Context(), name, from, to))
 	}))
 
+	registerStats(mux, cfg.ZabbixToken, cfg, store)
+
 	return securityHeaders(mux)
 }
 

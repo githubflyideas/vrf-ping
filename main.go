@@ -28,6 +28,8 @@ var (
 	flagListen = flag.String("listen", defaultConfig().Listen, "web UI address `host:port`; 0.0.0.0 = all interfaces")
 	flagLocal  = flag.Bool("localhost", false, "bind 127.0.0.1 only (this machine only), keeping the --listen port")
 	flagVer    = flag.Bool("version", false, "print version and exit")
+	flagZbx    = flag.Bool("zabbix", false, "serve read-only stats for the Zabbix template (needs VRFPING_ZABBIX_TOKEN)")
+	flagZbxTok = flag.String("zabbix-token-file", "", "file holding the Zabbix token")
 )
 
 // helpText is everything needed to get vrf-ping running without the README:
@@ -76,6 +78,12 @@ OPTIONAL ROUTING
   Web saves override list settings in targets/routing-options.json and reload within 3 seconds.
   VRF requires Linux and an existing VRF. Errors do not silently fall back to default routing.
   Each routing context has separate history; clearing both restores default-context history.
+
+ZABBIX  (optional, off by default)
+  VRFPING_ZABBIX_TOKEN=<16+ chars> ./vrf-ping --zabbix user=admin passwd=admin
+  serves a read-only GET /api/stats (per target: last 5 minutes' p50/p90/p99,
+  loss, loss bursts, probe errors; no hosts, VRFs or raw samples) for the
+  fogping Zabbix 7.0 template: github.com/githubflyideas/fogping/tree/main/zabbix
 
 ICMP PERMISSION  (without permission, the target reports a probe error)
   sudo sysctl -w net.ipv4.ping_group_range="0 2147483647"
@@ -140,6 +148,18 @@ func main() {
 	users, err := parseAuthArgs(flag.Args())
 	if err != nil {
 		log.Fatalf("bad auth args: %v (see ./vrf-ping --help)", err)
+	}
+	zbxToken, zbxIgnored, err := resolveZabbixToken(*flagZbx, *flagZbxTok, os.Getenv)
+	if err != nil {
+		log.Fatalf("%v (see ./vrf-ping --help)", err)
+	}
+	os.Unsetenv("VRFPING_ZABBIX_TOKEN")
+	cfg.ZabbixToken = zbxToken
+	if zbxIgnored {
+		log.Printf("note: a Zabbix token is set but --zabbix was not given; the Zabbix stats API stays off")
+	}
+	if zbxToken != "" {
+		log.Printf("zabbix: on — read-only GET /api/stats for the Zabbix template")
 	}
 	if cfg.Listen, err = listenAddr(*flagListen, *flagLocal); err != nil {
 		log.Fatalf("bad --listen: %v (see ./vrf-ping --help)", err)
