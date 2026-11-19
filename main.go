@@ -151,11 +151,7 @@ func main() {
 	}
 	zbxToken, zbxIgnored, err := resolveZabbixToken(*flagZbx, *flagZbxTok, os.Getenv)
 	if err != nil {
-		// A mistake in an optional integration must never stop the monitoring
-		// itself. The integration stays off, which is the safe state (no stats
-		// endpoint exists), and the log says why.
-		log.Printf("ERROR: %v\nERROR: the Zabbix stats API is OFF; fix the token and restart to turn it on. vrf-ping carries on without it.", err)
-		zbxToken, zbxIgnored = "", false
+		log.Fatalf("%v (see ./vrf-ping --help)", err)
 	}
 	os.Unsetenv("VRFPING_ZABBIX_TOKEN")
 	cfg.ZabbixToken = zbxToken
