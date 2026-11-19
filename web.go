@@ -6,6 +6,7 @@ import (
 	"embed"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"log"
 	"mime"
 	"net/http"
@@ -164,16 +165,30 @@ func newMux(cfg *Config, store *Store, users map[string]string) http.Handler {
 	// login: constant-time compare, 1s delay on failure, and a per-address lockout
 	// after repeated failures (see loginthrottle.go).
 	mux.HandleFunc("POST /api/login", func(w http.ResponseWriter, r *http.Request) {
+		// Before the throttle: this refuses a request that carries no credentials at
+		// all, so it must not take the address's one login slot (begin) or count as
+		// a guess.
+		if mt, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type")); mt != "application/json" {
+			jsonErr(w, http.StatusUnsupportedMediaType, "Content-Type must be application/json")
+			return
+		}
 		key := loginClientKey(r)
 		if wait, ok := throttle.begin(key); !ok {
-			w.Header().Set("Content-Type", "application/json; charset=utf-8")
 			w.Header().Set("Retry-After", retryAfter(wait))
-			w.WriteHeader(http.StatusTooManyRequests)
-			json.NewEncoder(w).Encode(map[string]string{"error": "too many failed logins, try again later"})
+			jsonErr(w, http.StatusTooManyRequests, "too many failed logins, try again later")
 			return
 		}
 		var body struct{ User, Pass string }
-		json.NewDecoder(http.MaxBytesReader(w, r.Body, 16<<10)).Decode(&body)
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16<<10)).Decode(&body); err != nil {
+			var tooBig *http.MaxBytesError
+			if errors.As(err, &tooBig) {
+				throttle.fail(key) // release the slot taken by begin; junk of this size is abuse, so it counts
+				jsonErr(w, http.StatusRequestEntityTooLarge, "request body is too large")
+				return
+			}
+			// Anything else unreadable falls through as an empty login and fails
+			// like a wrong password, so the throttle counts it.
+		}
 		want, ok := users[body.User]
 		if len(users) == 0 || !ok ||
 			subtle.ConstantTimeCompare([]byte(body.Pass), []byte(want)) != 1 {
@@ -265,6 +280,11 @@ func newMux(cfg *Config, store *Store, users map[string]string) http.Handler {
 			SourceAddress *string `json:"source_address"`
 		}
 		if err := decodeRoutingJSON(http.MaxBytesReader(w, r.Body, 8192), &body); err != nil || body.Name == "" || body.VRF == nil || body.SourceAddress == nil {
+			var tooBig *http.MaxBytesError
+			if errors.As(err, &tooBig) {
+				jsonErr(w, http.StatusRequestEntityTooLarge, "request body is too large")
+				return
+			}
 			jsonErr(w, http.StatusBadRequest, "expected name, vrf and source_address JSON fields")
 			return
 		}

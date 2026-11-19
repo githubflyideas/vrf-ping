@@ -185,10 +185,13 @@ func validateTarget(t *TargetCfg, i int, seenNames, seen map[string]bool) error 
 	switch t.Type {
 	case "icmp":
 	case "tcp":
-		if t.Port <= 0 {
-			return fmt.Errorf("tcp target %q needs a port", t.Name)
+		if t.Port < 1 || t.Port > 65535 {
+			return fmt.Errorf("tcp target %q needs a port 1-65535", t.Name)
 		}
 	case typeHTTP:
+		if t.Port < 1 || t.Port > 65535 {
+			return fmt.Errorf("http target %q needs a port 1-65535", t.Name)
+		}
 		specs = httpSpecs
 	default:
 		return fmt.Errorf("target %q: unknown type %q", t.Name, t.Type)
@@ -200,6 +203,9 @@ func validateTarget(t *TargetCfg, i int, seenNames, seen map[string]bool) error 
 		if err := validateHTTP(t); err != nil {
 			return fmt.Errorf("target %q: %w", t.Name, err)
 		}
+	}
+	if numericButNotIP(t.Host) {
+		return fmt.Errorf("target %q: %q looks like an IP address but is not one", t.Name, t.Host)
 	}
 	switch t.Pace {
 	case "", "fast", "normal", "slow":
@@ -293,7 +299,7 @@ func parseListLine(line, typ string) (TargetCfg, error) {
 			return t, fmt.Errorf("%s target %q must be host:port", typ, addr)
 		}
 		port, err := strconv.Atoi(portStr)
-		if err != nil || port <= 0 {
+		if err != nil || port < 1 || port > 65535 {
 			return t, fmt.Errorf("%s target %q: bad port", typ, addr)
 		}
 		t.Host, t.Port = host, port
@@ -370,4 +376,20 @@ func listOption(key, text string) (any, error) {
 		}
 	}
 	return text, nil
+}
+
+// numericButNotIP catches an address typed wrongly, such as 999.999.999.999: made
+// only of digits and dots, so it is meant as an IPv4 address, but it is not one.
+// Left alone it would be taken for a host NAME and shown as 100% loss. No real
+// host name is all digits (RFC 3696 forbids an all-numeric top label).
+func numericButNotIP(h string) bool {
+	if h == "" {
+		return false
+	}
+	for _, r := range h {
+		if r != '.' && (r < '0' || r > '9') {
+			return false
+		}
+	}
+	return net.ParseIP(h) == nil
 }
