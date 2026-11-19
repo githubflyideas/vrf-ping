@@ -326,7 +326,7 @@ func applyTargets(cfg *Config, fresh []TargetCfg, store *Store, det *Detector, m
 		return err
 	}
 	sig := func(t TargetCfg) string {
-		return fmt.Sprintf("%s|%s|%d|%s|%d|%s|%s", t.Type, t.Host, t.Port, t.Pace, t.IntervalSec, t.VRF, t.SourceAddress)
+		return fmt.Sprintf("%s|%s|%d|%s|%d|%s|%s|%s", t.Type, t.Host, t.Port, t.Pace, t.IntervalSec, t.VRF, t.SourceAddress, encodeOptions(t.Options))
 	}
 	want := map[string]TargetCfg{}
 	for _, t := range fresh {

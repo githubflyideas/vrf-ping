@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/binary"
 	"log"
 	"net"
@@ -34,6 +35,16 @@ func probeParams(t TargetCfg, p ProbeCfg) (interval time.Duration, packets int) 
 }
 
 func probeLoop(t TargetCfg, p ProbeCfg, store *Store, det *Detector, stop chan struct{}) {
+	// ctx is cancelled when the target stops, so a request in flight ends at once.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() {
+		select {
+		case <-stop:
+			cancel()
+		case <-ctx.Done():
+		}
+	}()
 	interval, packets := probeParams(t, p)
 	gap, timeout := time.Duration(p.GapMs)*time.Millisecond, time.Duration(p.TimeoutMs)*time.Millisecond
 	ticker := time.NewTicker(interval)
@@ -51,6 +62,11 @@ func probeLoop(t TargetCfg, p ProbeCfg, store *Store, det *Detector, stop chan s
 			r, err = icmpRoundTarget(t, packets, gap, timeout)
 		case "tcp":
 			r, err = tcpRoundTarget(t, packets, gap, timeout)
+		case typeHTTP:
+			r, err = httpRoundTarget(ctx, t, packets, gap, timeout)
+		}
+		if ctx.Err() != nil {
+			return // stopped mid-round: a partial round must not be stored
 		}
 		if err != nil {
 			log.Printf("[%s] probe error: %v", t.Name, err)

@@ -97,12 +97,15 @@ type TargetCfg struct {
 	VRF           string `json:"vrf,omitempty"`
 	SourceAddress string `json:"source_address,omitempty"`
 	Name          string `json:"name"`
-	Type          string `json:"type"` // "icmp" (default) | "tcp"
+	Type          string `json:"type"` // "icmp" (default) | "tcp" | "http"
 	Host          string `json:"host"`
 	Port          int    `json:"port"`         // tcp only
 	Pace          string `json:"pace"`         // "fast"(15s) | "normal"(60s) | "slow"(300s)
 	IntervalSec   int    `json:"interval_sec"` // explicit seconds, highest priority
-	dir           string
+	// Options are the settings only this type understands (options.go); today only
+	// http has any. They come from key=value words on a line of http.list.
+	Options map[string]any `json:"options,omitempty"`
+	dir     string
 }
 
 type ProbeCfg struct {
@@ -178,14 +181,25 @@ func validateTarget(t *TargetCfg, i int, seenNames, seen map[string]bool) error 
 	if t.Type == "" {
 		t.Type = "icmp"
 	}
+	var specs []optionSpec
 	switch t.Type {
 	case "icmp":
 	case "tcp":
 		if t.Port <= 0 {
 			return fmt.Errorf("tcp target %q needs a port", t.Name)
 		}
+	case typeHTTP:
+		specs = httpSpecs
 	default:
 		return fmt.Errorf("target %q: unknown type %q", t.Name, t.Type)
+	}
+	if err := normalizeOptions(t.Type, specs, t); err != nil {
+		return fmt.Errorf("target %q: %w", t.Name, err)
+	}
+	if t.Type == typeHTTP {
+		if err := validateHTTP(t); err != nil {
+			return fmt.Errorf("target %q: %w", t.Name, err)
+		}
 	}
 	switch t.Pace {
 	case "", "fast", "normal", "slow":
@@ -247,7 +261,7 @@ func loadTargetListsLenient(dir string) ([]TargetCfg, []string) {
 }
 
 func walkTargetLists(dir string, fn func(TargetCfg, error)) {
-	for _, spec := range []struct{ file, typ string }{{"ping.list", "icmp"}, {"tcp.list", "tcp"}} {
+	for _, spec := range []struct{ file, typ string }{{"ping.list", "icmp"}, {"tcp.list", "tcp"}, {"http.list", typeHTTP}} {
 		raw, err := os.ReadFile(filepath.Join(dir, spec.file))
 		if err != nil {
 			continue
@@ -273,14 +287,14 @@ func parseListLine(line, typ string) (TargetCfg, error) {
 		return t, fmt.Errorf("empty line")
 	}
 	addr := fields[0]
-	if typ == "tcp" {
+	if typ == "tcp" || typ == typeHTTP {
 		host, portStr, err := net.SplitHostPort(addr)
 		if err != nil {
-			return t, fmt.Errorf("tcp target %q must be host:port", addr)
+			return t, fmt.Errorf("%s target %q must be host:port", typ, addr)
 		}
 		port, err := strconv.Atoi(portStr)
 		if err != nil || port <= 0 {
-			return t, fmt.Errorf("tcp target %q: bad port", addr)
+			return t, fmt.Errorf("%s target %q: bad port", typ, addr)
 		}
 		t.Host, t.Port = host, port
 	} else {
@@ -306,7 +320,23 @@ func parseListLine(line, typ string) (TargetCfg, error) {
 				return t, fmt.Errorf("interval=%q invalid", v)
 			}
 			t.IntervalSec = n
-		} // unknown k=v silently ignored: forward compatibility
+		default:
+			// Unknown words are ignored for ping and tcp lines (they always were:
+			// forward compatibility). An http line is new, so a word it does not
+			// know is an option of the http type: checked strictly, because a typo
+			// must be an error and not a silently ignored setting.
+			if typ != typeHTTP {
+				continue
+			}
+			opt, err := listOption(k, v)
+			if err != nil {
+				return t, err
+			}
+			if t.Options == nil {
+				t.Options = map[string]any{}
+			}
+			t.Options[k] = opt
+		}
 	}
 	if len(nameParts) > 0 {
 		t.Name = strings.Join(nameParts, " ")
@@ -314,4 +344,30 @@ func parseListLine(line, typ string) (TargetCfg, error) {
 		t.Name = addr
 	}
 	return t, nil
+}
+
+// listOption turns the text of a key=value word into the value its option takes,
+// so the same validation that judges an API or file value judges it. An unknown key
+// is passed on as text: normalizeOptions then refuses it by name.
+func listOption(key, text string) (any, error) {
+	for _, s := range httpSpecs {
+		if s.Key != key {
+			continue
+		}
+		switch s.Kind {
+		case optInt:
+			n, err := strconv.Atoi(text)
+			if err != nil {
+				return nil, fmt.Errorf("%s=%q must be a whole number", key, text)
+			}
+			return n, nil
+		case optBool:
+			b, err := strconv.ParseBool(text)
+			if err != nil {
+				return nil, fmt.Errorf("%s=%q must be true or false", key, text)
+			}
+			return b, nil
+		}
+	}
+	return text, nil
 }

@@ -47,8 +47,16 @@ A line that does not parse never takes the service down. At startup it is skippe
 1.1.1.1:443 eth0-zone1-https vrf=zone1 source=192.168.10.2
 ```
 
+**`targets/http.list`**
+
+```text
+app.example.com:443 api-health path=/health expect_status=200 vrf=zone1 source=192.168.10.2
+10.0.0.5:8080 intranet scheme=http
+```
+
 Format: `target[:port] name [vrf=NAME] [source=LOCAL_IP]`.
 
+- An `http.list` line times the first byte of an HTTP(S) request, through the same VRF, source address and DNS scope as the TCP probe. After `host:port` it takes `scheme=https|http` (default `https`; the certificate is always verified, and there is no switch to skip that), `method=GET|HEAD`, `path=/x` (starts with `/`, a query string is allowed), `host_header=NAME`, `expect_status=N` (default: any status below 400 counts as up) and `follow_redirects=true`. A word an http line does not know is an error that names it. A response with a bad status counts as loss; a name that does not resolve or a VRF that cannot be used is a probe error, as for TCP.
 - Names must be unique. `ens18` and `eth0-zone1` are labels, not interface bindings.
 - Both options are independent and optional. Omit them for the default routing domain and automatic source selection. Replace example source IPs with local addresses valid in the selected routing domain.
 - VRF requires Linux, an existing VRF and sufficient socket permissions. The program does not configure networking or silently fall back on binding failure. ICMP is currently IPv4-only.
