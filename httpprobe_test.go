@@ -158,3 +158,12 @@ func TestHTTPListLines(t *testing.T) {
 		t.Errorf("tcp line with an unknown word: %v", err)
 	}
 }
+
+// The option declarations are constants in this file. They are checked here, by the
+// tests, so that a mistake in them cannot ship, and not at start-up, where nothing a
+// user does can reach them and nothing of ours should be able to stop the program.
+func TestHTTPSpecsAreValid(t *testing.T) {
+	if err := validateSpecs(httpSpecs); err != nil {
+		t.Fatal(err)
+	}
+}
