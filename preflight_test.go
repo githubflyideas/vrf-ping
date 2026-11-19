@@ -25,6 +25,9 @@ func TestPrepareReportsEveryProblem(t *testing.T) {
 }
 
 func TestSecuritySummaryMarksWhatIsExposed(t *testing.T) {
+	old := runningAsRoot
+	runningAsRoot = func() bool { return false }
+	defer func() { runningAsRoot = old }()
 	open, _ := prepare(nil, false, "", "0.0.0.0:8517", false, noEnv)
 	text := strings.Join(securitySummary(open), "\n")
 	if !strings.Contains(text, "! listen") || !strings.Contains(text, "! login     OFF") {
@@ -35,8 +38,19 @@ func TestSecuritySummaryMarksWhatIsExposed(t *testing.T) {
 		t.Errorf("localhost-only instance flagged:\n%s", text)
 	}
 	pw, _ := prepare([]string{"user=a", "passwd=b"}, false, "", "127.0.0.1:8517", false, noEnv)
-	if text := strings.Join(securitySummary(pw), "\n"); !strings.Contains(text, "visible in ps") {
-		t.Errorf("command-line password not flagged:\n%s", text)
+	text = strings.Join(securitySummary(pw), "\n")
+	for _, want := range []string{"visible in ps", "1 password(s) shorter than 8"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("missing %q in\n%s", want, text)
+		}
+	}
+	runningAsRoot = func() bool { return true }
+	open2, _ := prepare(nil, false, "", "0.0.0.0:8517", false, noEnv)
+	text = strings.Join(securitySummary(open2), "\n")
+	for _, want := range []string{"! account", "! transport"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("missing %q in\n%s", want, text)
+		}
 	}
 }
 
@@ -100,5 +114,31 @@ func TestGenTokenIsStrongPrivateAndNeverPrinted(t *testing.T) {
 	}
 	if err := genToken(&out, path); err == nil {
 		t.Fatal("overwrote an existing token")
+	}
+}
+
+// The password can come from the environment or a file, so it never has to be on
+// the command line where every account can read it.
+func TestLoginFromEnvironmentOrFile(t *testing.T) {
+	env := func(m map[string]string) func(string) string { return func(k string) string { return m[k] } }
+	users, cli, err := resolveAuth(nil, env(map[string]string{"VRFPING_USER": "admin", "VRFPING_PASSWD": "long-enough-pw"}))
+	if err != nil || cli || users["admin"] != "long-enough-pw" {
+		t.Fatalf("environment: %v %v %v", users, cli, err)
+	}
+	file := filepath.Join(t.TempDir(), "pw")
+	os.WriteFile(file, []byte("from-file-pw\n"), 0o600)
+	users, cli, err = resolveAuth([]string{"user=admin", "passwd-file=" + file}, noEnv)
+	if err != nil || cli || users["admin"] != "from-file-pw" {
+		t.Fatalf("file: %v %v %v", users, cli, err)
+	}
+	users, cli, _ = resolveAuth([]string{"user=admin", "passwd=on-the-line"}, noEnv)
+	if !cli || users["admin"] != "on-the-line" {
+		t.Fatal("a command-line password is not reported as such")
+	}
+	if _, _, err := resolveAuth(nil, env(map[string]string{"VRFPING_USER": "a", "VRFPING_PASSWD": "x", "VRFPING_PASSWD_FILE": file})); err == nil {
+		t.Fatal("both VRFPING_PASSWD and VRFPING_PASSWD_FILE accepted")
+	}
+	if _, _, err := resolveAuth([]string{"user=a", "passwd=x", "passwd-file=" + file}, noEnv); err == nil {
+		t.Fatal("both passwd= and passwd-file= accepted")
 	}
 }

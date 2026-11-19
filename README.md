@@ -67,6 +67,8 @@ Format: `target[:port] name [vrf=NAME] [source=LOCAL_IP]`.
 ./vrf-ping --listen 0.0.0.0:8517 user=admin passwd='YOUR_PASSWORD'
 ```
 
+To keep the password out of `ps` and shell history, give it as `VRFPING_PASSWD=... ./vrf-ping user=admin` or `./vrf-ping user=admin passwd-file=/etc/vrf-ping.pw` (one password per line, `chmod 600`); `VRFPING_USER` and `VRFPING_PASSWD_FILE` work too.
+
 Use `--localhost` for loopback-only access; `--help` lists options. Restrict access to trusted management networks.
 
 Before restarting a service, `./vrf-ping --check` with the same arguments says whether it would start and why not (login, token, working directory, target lists, port), without writing anything. Every start logs a short security summary; anything exposed is marked `!`.

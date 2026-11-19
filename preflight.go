@@ -24,6 +24,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // setup is everything the command line and the environment decided.
@@ -31,6 +32,7 @@ type setup struct {
 	cfg          *Config
 	users        map[string]string
 	localOnly    bool
+	cliPasswd    bool // a password was given on the command line (visible in ps)
 	tokenIgnored bool
 }
 
@@ -39,11 +41,11 @@ type setup struct {
 func prepare(args []string, zabbix bool, tokenFile, listen string, localOnly bool, getenv func(string) string) (setup, []error) {
 	var problems []error
 	s := setup{cfg: defaultConfig(), localOnly: localOnly}
-	users, err := parseAuthArgs(args)
+	users, cliPasswd, err := resolveAuth(args, getenv)
 	if err != nil {
 		problems = append(problems, fmt.Errorf("bad auth args: %v", err))
 	}
-	s.users = users
+	s.users, s.cliPasswd = users, cliPasswd
 	token, ignored, err := resolveZabbixToken(zabbix, tokenFile, getenv)
 	if err != nil {
 		problems = append(problems, err)
@@ -88,16 +90,33 @@ func securitySummary(s setup) []string {
 	} else {
 		line(true, "listen", s.cfg.Listen+" (every interface: reachable from the network)")
 	}
+	if !local {
+		line(true, "transport", "plain HTTP: logins and pages cross the network unencrypted; put an HTTPS reverse proxy in front")
+	}
 	switch {
 	case len(s.users) > 0:
-		// vrf-ping takes passwords only as passwd= arguments.
-		line(true, "login", fmt.Sprintf("on, %d user(s); the password is on the command line, visible in ps", len(s.users)))
+		// Every issue with the login is named, not just the first.
+		var issues []string
+		if weak := weakPasswords(s.users); weak > 0 {
+			issues = append(issues, fmt.Sprintf("%d password(s) shorter than %d characters", weak, minPasswordLen))
+		}
+		if s.cliPasswd {
+			issues = append(issues, "the password is on the command line, visible in ps")
+		}
+		text := fmt.Sprintf("on, %d user(s)", len(s.users))
+		if len(issues) > 0 {
+			text += "; " + strings.Join(issues, "; ")
+		}
+		line(len(issues) > 0, "login", text)
 	case local:
 		line(false, "login", "off (only this machine can connect; put a reverse proxy with login in front)")
 	default:
 		line(true, "login", "OFF: anyone who can reach the port can see the charts")
 	}
 	line(false, "editing", "routing options only, and only with a login")
+	if runningAsRoot() {
+		line(true, "account", "running as root: a flaw anywhere is a flaw with full control of this machine; use an ordinary account (a VRF needs only CAP_NET_RAW)")
+	}
 	if s.cfg.ZabbixToken != "" {
 		line(false, "zabbix", "on: GET /api/stats with a read-only token")
 	} else {
@@ -222,3 +241,21 @@ func genToken(w io.Writer, path string) error {
 	fmt.Fprintf(w, "and give the same token to the Zabbix template ({$FOGPING.TOKEN}).\n")
 	return nil
 }
+
+// minPasswordLen is the shortest password not flagged as weak: pingping's rule.
+const minPasswordLen = 8
+
+// weakPasswords counts the passwords shorter than minPasswordLen. A short one is
+// warned about, not refused: refusing would stop a running setup at its next start.
+func weakPasswords(users map[string]string) int {
+	n := 0
+	for _, pw := range users {
+		if len([]rune(pw)) < minPasswordLen {
+			n++
+		}
+	}
+	return n
+}
+
+// runningAsRoot is a variable so tests can pretend.
+var runningAsRoot = func() bool { return os.Geteuid() == 0 }

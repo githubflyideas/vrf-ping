@@ -56,6 +56,12 @@ EXAMPLES
   ./vrf-ping --localhost                        # 127.0.0.1:8517, this machine only
   ./vrf-ping --listen 0.0.0.0:9000 user=admin passwd=admin
 
+  passwd= on the command line is readable by every account on this machine (ps)
+  and stays in shell history. To keep it private, use the environment or a file:
+      VRFPING_PASSWD='change-me' ./vrf-ping user=admin
+      ./vrf-ping user=admin passwd-file=/etc/vrf-ping.pw     # one password per line, chmod 600
+  VRFPING_USER and VRFPING_PASSWD_FILE work the same way.
+
 RUN IN BACKGROUND  (always start from /home/vrf-ping: targets/ and data/ live there)
   cd /home/vrf-ping
   nohup ./vrf-ping user=admin passwd=admin > vrf-ping.log 2>&1 &   # start, keeps running after logout
@@ -166,7 +172,14 @@ func main() {
 		log.Fatalf("vrf-ping did not start: %d problem(s) above. './vrf-ping --check' reports on the whole setup without starting (see ./vrf-ping --help).", len(problems))
 	}
 	cfg, users := st.cfg, st.users
+	// The variables have done their job; do not hand them to anything this
+	// process might start.
+	os.Unsetenv("VRFPING_PASSWD")
 	os.Unsetenv("VRFPING_ZABBIX_TOKEN")
+	if st.cliPasswd {
+		log.Printf("WARNING: passwd= on the command line is visible to every account on this machine (ps, /proc) " +
+			"and lands in shell history. Prefer VRFPING_PASSWD=... in the environment or passwd-file=PATH.")
+	}
 	if st.tokenIgnored {
 		log.Printf("note: a Zabbix token is set but --zabbix was not given; the Zabbix stats API stays off")
 	}
@@ -236,9 +249,46 @@ func main() {
 	log.Printf("vrf-ping shutting down")
 }
 
+// resolveAuth finds the login from, in order: user=/passwd=/passwd-file= on the
+// command line, then VRFPING_USER with VRFPING_PASSWD or VRFPING_PASSWD_FILE in
+// the environment (the same rules as fogping). cliPasswd reports a password given
+// as passwd= on the command line, which works, but every local account can read a
+// process's arguments, while its environment and a 0600 file are private.
+func resolveAuth(args []string, getenv func(string) string) (users map[string]string, cliPasswd bool, err error) {
+	hasUser, hasPw := false, false
+	for _, a := range args {
+		switch k, _, _ := strings.Cut(a, "="); k {
+		case "user", "users":
+			hasUser = true
+		case "passwd", "password", "passwords":
+			cliPasswd, hasPw = true, true
+		case "passwd-file":
+			hasPw = true
+		}
+	}
+	all := append([]string(nil), args...)
+	if u := getenv("VRFPING_USER"); u != "" && !hasUser {
+		all = append(all, "user="+u)
+	}
+	pw, pwFile := getenv("VRFPING_PASSWD"), getenv("VRFPING_PASSWD_FILE")
+	if !hasPw {
+		switch {
+		case pw != "" && pwFile != "":
+			return nil, false, fmt.Errorf("set VRFPING_PASSWD or VRFPING_PASSWD_FILE, not both")
+		case pwFile != "":
+			all = append(all, "passwd-file="+pwFile)
+		case pw != "":
+			all = append(all, "passwd="+pw)
+		}
+	}
+	users, err = parseAuthArgs(all)
+	return users, cliPasswd, err
+}
+
 // parseAuthArgs parses trailing "user=a,b passwd=x,y" arguments into a cred map.
 func parseAuthArgs(args []string) (map[string]string, error) {
 	var users, pws []string
+	fromFile := false
 	for _, a := range args {
 		k, v, ok := strings.Cut(a, "=")
 		if strings.HasPrefix(a, "-") {
@@ -251,9 +301,27 @@ func parseAuthArgs(args []string) (map[string]string, error) {
 		case "user", "users":
 			users = strings.Split(v, ",")
 		case "passwd", "password", "passwords":
+			if fromFile {
+				return nil, fmt.Errorf("give passwd= or passwd-file=, not both")
+			}
 			pws = strings.Split(v, ",")
+		case "passwd-file":
+			if pws != nil {
+				return nil, fmt.Errorf("give passwd= or passwd-file=, not both")
+			}
+			b, err := os.ReadFile(v)
+			if err != nil {
+				return nil, fmt.Errorf("passwd-file: %v", err)
+			}
+			fromFile = true
+			pws = []string{}
+			for _, line := range strings.Split(strings.ReplaceAll(string(b), "\r\n", "\n"), "\n") {
+				if line != "" {
+					pws = append(pws, line)
+				}
+			}
 		default:
-			return nil, fmt.Errorf("unknown key %q (expected user=, passwd=)", k)
+			return nil, fmt.Errorf("unknown key %q (expected user=, passwd=, passwd-file=)", k)
 		}
 	}
 	if len(users) == 0 && len(pws) == 0 {

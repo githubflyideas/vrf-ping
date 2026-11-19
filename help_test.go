@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"flag"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -45,7 +47,17 @@ func TestHelpExamplesParse(t *testing.T) {
 			t.Errorf("%q: %v", line, err)
 			continue
 		}
-		if _, err := parseAuthArgs(fs.Args()); err != nil {
+		// An example naming a password file is checked with a real one in its place:
+		// what is tested is the syntax, not this machine's /etc.
+		auth := append([]string(nil), fs.Args()...)
+		for i, a := range auth {
+			if strings.HasPrefix(a, "passwd-file=") {
+				f := filepath.Join(t.TempDir(), "pw")
+				os.WriteFile(f, []byte("example-password\n"), 0o600)
+				auth[i] = "passwd-file=" + f
+			}
+		}
+		if _, err := parseAuthArgs(auth); err != nil {
 			t.Errorf("%q: %v", line, err)
 		}
 		if _, err := listenAddr(*listen, *local); err != nil {
