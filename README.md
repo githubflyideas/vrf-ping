@@ -69,6 +69,8 @@ Format: `target[:port] name [vrf=NAME] [source=LOCAL_IP]`.
 
 Use `--localhost` for loopback-only access; `--help` lists options. Restrict access to trusted management networks.
 
+Before restarting a service, `./vrf-ping --check` with the same arguments says whether it would start and why not (login, token, working directory, target lists, port), without writing anything. Every start logs a short security summary; anything exposed is marked `!`.
+
 The first 5 wrong passwords from one client address are only delayed; the 6th locks that address for 30 s, and each further miss doubles the lock up to 15 min; even the right password is refused (HTTP 429) until the lock runs out. The session cookie is `vrfping_session` (it was `pingping_session`, which clashed with a pingping console on the same host); signing in again after the upgrade is expected.
 
 Authenticated users can edit an existing target under **Probe routing**. Web writes are disabled when login is not configured.
@@ -77,7 +79,7 @@ Web settings are stored in `targets/routing-options.json` and **override list-fi
 
 ## Zabbix (optional)
 
-Off by default. `VRFPING_ZABBIX_TOKEN=<16+ characters> ./vrf-ping --zabbix user=admin passwd=...` (or `VRFPING_ZABBIX_TOKEN_FILE` / `--zabbix-token-file`) serves a read-only `GET /api/stats`: per target, the last five minutes' p50/p90/p99, loss, loss bursts and `probe_errors` (rounds that could not probe at all, such as a missing VRF). No hosts, VRFs, source addresses or raw samples. Use it with the [fogping Zabbix 7.0 template](https://github.com/githubflyideas/fogping/tree/main/zabbix/template_fogping/7.0): set `{$FOGPING.URL}` to `http://<host>:8517`. Item ids derive from the target name, so a rename starts a new item. Without `--zabbix` nothing changes.
+Off by default. `VRFPING_ZABBIX_TOKEN=<16+ characters> ./vrf-ping --zabbix user=admin passwd=...` (or `VRFPING_ZABBIX_TOKEN_FILE` / `--zabbix-token-file`) serves a read-only `GET /api/stats`: per target, the last five minutes' p50/p90/p99, loss, loss bursts and `probe_errors` (rounds that could not probe at all, such as a missing VRF). No hosts, VRFs, source addresses or raw samples. Use it with the [fogping Zabbix 7.0 template](https://github.com/githubflyideas/fogping/tree/main/zabbix/template_fogping/7.0): set `{$FOGPING.URL}` to `http://<host>:8517`. Item ids derive from the target name, so a rename starts a new item. Without `--zabbix` nothing changes. `./vrf-ping --gen-token zabbix.token` makes a strong token in a file only you can read (it is never printed).
 
 ## Data and upgrades
 

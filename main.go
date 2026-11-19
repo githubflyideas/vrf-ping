@@ -30,6 +30,8 @@ var (
 	flagVer    = flag.Bool("version", false, "print version and exit")
 	flagZbx    = flag.Bool("zabbix", false, "serve read-only stats for the Zabbix template (needs VRFPING_ZABBIX_TOKEN)")
 	flagZbxTok = flag.String("zabbix-token-file", "", "file holding the Zabbix token")
+	flagCheck  = flag.Bool("check", false, "check flags, login, token, working directory, target lists and port; report and exit without starting")
+	flagGenTok = flag.String("gen-token", "", "write a new random Zabbix token to this `file` (owner-only, never printed) and exit")
 )
 
 // helpText is everything needed to get vrf-ping running without the README:
@@ -91,6 +93,7 @@ ICMP PERMISSION  (without permission, the target reports a probe error)
 FILES  (relative to the directory vrf-ping is started in)
   targets/ping.list                 created on first run with one demo target (www.google.com)
   targets/tcp.list                  create it when you need TCP targets; picked up automatically
+  targets/http.list                 create it when you need HTTP(S) targets; picked up automatically
   targets/routing-options.json      optional Web UI routing overrides
   data/<target>/YYYY-MM-DD.jsonl    full samples 30 days, downsampled after, deleted at 300 days
 
@@ -144,25 +147,28 @@ func main() {
 	// v2.1: no config file. Program parameters are constants; users edit target
 	// lists and, optionally, pass web credentials on the command line:
 	//   ./vrf-ping user=u1,u2 passwd=p1,p2
-	cfg := defaultConfig()
-	users, err := parseAuthArgs(flag.Args())
-	if err != nil {
-		log.Fatalf("bad auth args: %v (see ./vrf-ping --help)", err)
+	if *flagGenTok != "" {
+		if err := genToken(os.Stdout, *flagGenTok); err != nil {
+			fmt.Fprintf(os.Stderr, "vrf-ping: %v\n", err)
+			os.Exit(1)
+		}
+		return
 	}
-	zbxToken, zbxIgnored, err := resolveZabbixToken(*flagZbx, *flagZbxTok, os.Getenv)
-	if err != nil {
-		log.Fatalf("%v (see ./vrf-ping --help)", err)
+	st, problems := prepare(flag.Args(), *flagZbx, *flagZbxTok, *flagListen, *flagLocal, os.Getenv)
+	if *flagCheck {
+		os.Exit(runCheck(os.Stdout, st, problems))
 	}
+	if len(problems) > 0 {
+		// Every refusal stands. They are only listed together, so one restart fixes all.
+		for _, p := range problems {
+			log.Printf("ERROR: %v", p)
+		}
+		log.Fatalf("vrf-ping did not start: %d problem(s) above. './vrf-ping --check' reports on the whole setup without starting (see ./vrf-ping --help).", len(problems))
+	}
+	cfg, users := st.cfg, st.users
 	os.Unsetenv("VRFPING_ZABBIX_TOKEN")
-	cfg.ZabbixToken = zbxToken
-	if zbxIgnored {
+	if st.tokenIgnored {
 		log.Printf("note: a Zabbix token is set but --zabbix was not given; the Zabbix stats API stays off")
-	}
-	if zbxToken != "" {
-		log.Printf("zabbix: on — read-only GET /api/stats for the Zabbix template")
-	}
-	if cfg.Listen, err = listenAddr(*flagListen, *flagLocal); err != nil {
-		log.Fatalf("bad --listen: %v (see ./vrf-ping --help)", err)
 	}
 
 	// the working directory holds targets/ and data/; fail loudly if we can't write
@@ -208,12 +214,14 @@ func main() {
 
 	log.Printf("vrf-ping %s up · %d targets · listening on %s · data in %s · %d-day retention",
 		version, len(cfg.TargetList()), cfg.Listen, cfg.DataDir, cfg.RetentionDays)
-	log.Printf("➜  open http://localhost%s for the smoke graph", portOf(cfg.Listen))
-	if len(users) == 0 {
-		log.Printf("tip: web UI is open to everyone; add a login with  ./vrf-ping user=u1,u2 passwd=p1,p2")
-	} else {
-		log.Printf("web login enabled for %d user(s)", len(users))
+	log.Printf("security summary (lines marked ! deserve a look):")
+	for _, l := range securitySummary(st) {
+		log.Printf("  %s", l)
 	}
+	if len(users) == 0 && !loopbackOnly(cfg.Listen) {
+		log.Printf("tip: web UI is open to everyone; add a login with  ./vrf-ping user=u1,u2 passwd=p1,p2")
+	}
+	log.Printf("➜  open http://localhost%s for the smoke graph", portOf(cfg.Listen))
 
 	go func() {
 		if err := serveWeb(cfg, store, users); err != nil {
