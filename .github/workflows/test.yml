@@ -34,7 +34,7 @@ jobs:
           sudo modprobe vrf
           go test -c -o "$RUNNER_TEMP/vrf-ping.test"
           sudo env JSON_PING_DISPOSABLE_NETNS=1 unshare --net sh scripts/test-vrf.sh "$RUNNER_TEMP/vrf-ping.test"
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with: { node-version: '22', cache: npm }
       - run: npm ci --ignore-scripts
       - run: npx playwright install --with-deps chromium
