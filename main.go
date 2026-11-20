@@ -346,7 +346,7 @@ var runningSig = map[string]TargetCfg{}
 func reloadLoop(cfg *Config, store *Store, det *Detector, mgr map[string]chan struct{}, stop chan struct{}) {
 	stamp := func() string {
 		out := ""
-		for _, f := range []string{"ping.list", "tcp.list", routingOptionsFile} {
+		for _, f := range []string{"ping.list", "tcp.list", "http.list", routingOptionsFile} {
 			if fi, err := os.Stat(filepath.Join(cfg.TargetsDir, f)); err == nil {
 				out += fmt.Sprintf("%s:%d;", f, fi.ModTime().UnixNano())
 			}
