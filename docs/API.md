@@ -5,6 +5,9 @@ same rules hold in fogping and pingping, so a client written for one reads the
 others the same way. Targets themselves are not edited through the API: they
 come from `targets/*.list` (see the README).
 
+The same API in machine-readable form: [openapi.yaml](openapi.yaml) (OpenAPI 3.1).
+A test (`TestOpenAPIMatchesRoutes`) fails when it and the registered routes differ.
+
 ## Rules
 
 These are enforced by tests (`api_test.go`): code that breaks one does not pass CI.

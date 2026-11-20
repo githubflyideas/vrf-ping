@@ -2,7 +2,7 @@
   "name": "vrf-ping-browser-tests",
   "private": true,
   "scripts": {
-    "test": "node --test routing_browser.test.cjs"
+    "test": "node --test routing_browser.test.cjs login_capslock.test.cjs"
   },
   "devDependencies": {
     "playwright": "1.62.1"
