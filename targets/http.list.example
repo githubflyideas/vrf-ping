@@ -1,0 +1,13 @@
+# HTTP(S) targets: host:port, then optional key=value words, then a name.
+# Copy to http.list; saved edits apply within 3s.
+#
+#   scheme=https|http        default https (the certificate is always verified)
+#   method=GET|HEAD          default GET
+#   path=/health             starts with /; a query string is allowed
+#   host_header=site.example ask for another site on the same address
+#   expect_status=200        default: any status below 400 counts as up
+#   follow_redirects=true    follow up to 5 redirects and time the whole chain
+#   vrf=NAME source=IP       the routing context, as in ping.list and tcp.list
+#
+app.example.com:443   App-health     path=/health expect_status=200
+10.0.0.5:8080         Intranet        scheme=http vrf=zone1

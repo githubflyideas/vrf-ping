@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:,"><title>Sign in — vrf-ping</title>
+<script>
+  const t = localStorage.getItem('pp_theme');
+  if (t && t !== 'dark') document.documentElement.dataset.theme = t;
+</script>
+<style>
+  :root {
+    --bg:#0e1013; --panel:#171a1f; --line:#2a2f37; --ctl:#636870; --phos:#f0a838; --amber:#e8c468;
+    --ink:#c4cad2; --dim:#7a858f; --alert:#ef4a5a;
+    --mono: ui-monospace,"SF Mono","Cascadia Mono",Consolas,"Noto Sans Mono",monospace;
+    --sans: system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  }
+  * { box-sizing:border-box; margin:0; }
+  body { background:var(--bg); color:var(--ink); font-family:var(--sans);
+         -webkit-font-smoothing:antialiased;
+         min-height:100vh; display:flex; align-items:center; justify-content:center; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:10px;
+          padding:34px 38px; width:min(360px, 92vw); box-shadow:0 12px 32px rgba(0,0,0,.35); }
+  .mark { color:var(--phos); font-family:var(--mono); font-weight:700; font-size:19px; letter-spacing:.04em; }
+  .sub { color:var(--dim); font-size:11px; margin:6px 0 22px; }
+  label { display:block; color:var(--dim); font-family:var(--sans); font-weight:600;
+          font-size:10px; letter-spacing:.14em; margin:14px 0 6px; text-transform:uppercase; }
+  input { width:100%; font-family:var(--mono); font-size:14px; color:var(--ink);
+          background:var(--bg); border:1px solid var(--ctl); border-radius:6px; padding:10px 12px; }
+  :focus-visible { outline:2px solid var(--phos); outline-offset:2px; }
+  input:focus { outline:none; border-color:var(--phos); }
+  button { width:100%; margin-top:22px; font-family:var(--sans); font-weight:600; font-size:13px;
+           background:none; color:var(--amber); border:1px solid var(--amber);
+           border-radius:6px; padding:11px; cursor:pointer; transition:background .12s; }
+  button:hover { background:color-mix(in srgb, var(--amber) 12%, transparent); }
+  .err { color:var(--alert); font-size:12px; margin-top:12px; min-height:16px; }
+
+  html[data-theme="newsprint"] {
+    --bg:#efe9dc; --panel:#f8f4ea; --line:#d8cfb8; --ctl:#898374;
+    --phos:#1a1a18; --amber:#973a2d; --alert:#b8241f; --ink:#3d3a33; --dim:#6c6858;
+  }
+  html[data-theme="ukiyo"] {
+    --bg:#eef0e6; --panel:#f7f8f0; --line:#d4d8c4; --ctl:#80898c;
+    --phos:#1b3a6b; --amber:#825110; --alert:#c1362f; --ink:#324158; --dim:#5f6d7a;
+  }
+  html[data-theme="memphis"] {
+    --bg:#e8e4ec; --panel:#f5f2f8; --line:#d2c8dc; --ctl:#887d91;
+    --phos:#bf2f1a; --amber:#096159; --alert:#ba342d; --ink:#463b4f; --dim:#6c6177;
+  }
+  html[data-theme="phosphor"] {
+    --bg:#0a0f0a; --panel:#131a12; --line:#233024; --ctl:#5c6c5c;
+    --phos:#5eeb8a; --amber:#8ff0ab; --alert:#ff5f4a; --ink:#b8ceb8; --dim:#718872;
+  }
+</style>
+</head>
+<body>
+<main class="card">
+  <h1 class="mark">vrf-ping <span aria-hidden="true">●</span></h1>
+  <p class="sub">Sign in to vrf-ping</p>
+  <label for="user">USERNAME</label><input id="user" autocomplete="username" autofocus>
+  <label for="pass">PASSWORD</label><input id="pass" type="password" autocomplete="current-password">
+  <button id="go">Sign in</button>
+  <div class="err" id="err" role="alert"></div>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+async function login() {
+  $('err').textContent = '';
+  const res = await fetch('/api/login', { method:'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ user: $('user').value, pass: $('pass').value }) });
+  if (res.ok) location.href = '/';
+  else if (res.status === 429) {
+    const s = +res.headers.get('Retry-After') || 0;
+    $('err').textContent = 'Too many failed attempts — try again in ' +
+      (s >= 120 ? Math.ceil(s / 60) + ' min' : s + ' s');
+  } else $('err').textContent = 'Wrong username or password';
+}
+$('go').onclick = login;
+document.addEventListener('keydown', e => { if (e.key === 'Enter') login(); });
+</script>
+</body>
+</html>
