@@ -83,6 +83,10 @@ Web settings are stored in `targets/routing-options.json` and **override list-fi
 
 Off by default. `VRFPING_ZABBIX_TOKEN=<16+ characters> ./vrf-ping --zabbix user=admin passwd=...` (or `VRFPING_ZABBIX_TOKEN_FILE` / `--zabbix-token-file`) serves a read-only `GET /api/stats`: per target, the last five minutes' p50/p90/p99, loss, loss bursts and `probe_errors` (rounds that could not probe at all, such as a missing VRF). No hosts, VRFs, source addresses or raw samples. Use it with the [fogping Zabbix 7.0 template](https://github.com/githubflyideas/fogping/tree/main/zabbix/template_fogping/7.0): set `{$FOGPING.URL}` to `http://<host>:8517`. Item ids derive from the target name, so a rename starts a new item. Without `--zabbix` nothing changes. `./vrf-ping --gen-token zabbix.token` makes a strong token in a file only you can read (it is never printed).
 
+## HTTP API
+
+The web UI and the Zabbix template use one JSON API: [docs/API.md](docs/API.md) · OpenAPI 3.1: [docs/openapi.yaml](docs/openapi.yaml).
+
 ## Data and upgrades
 
 `data/` contains daily JSONL files with a default retention of 300 days. Different VRF/source contexts have separate histories. Clearing both options returns to the target's default-context history.
