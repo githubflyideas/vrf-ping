@@ -125,6 +125,27 @@ func usage(w io.Writer) {
 		fmt.Fprintf(w, "  %-22s %s%s\n", arg, u, def)
 	})
 	fmt.Fprintf(w, "  %-22s %s\n", "--help", "this text (also: ./vrf-ping help)")
+	fmt.Fprintf(w, "  %-22s %s\n", "check, gen-token F", "subcommand spellings; same as --check / --gen-token")
+}
+
+// aliasArgs accepts the subcommand spellings of the same two operations —
+// `check` and `gen-token FILE` — so the family's commands read the same
+// whichever binary is in front of you. Only the first argument is
+// translated; everything after it is untouched.
+func aliasArgs(args []string) []string {
+	if len(args) == 0 {
+		return args
+	}
+	switch args[0] {
+	case "check":
+		return append([]string{"--check"}, args[1:]...)
+	case "gen-token":
+		if len(args) < 2 {
+			return []string{"--gen-token"} // flag parsing reports the missing value
+		}
+		return append([]string{"--gen-token=" + args[1]}, args[2:]...)
+	}
+	return args
 }
 
 func wantsHelp(args []string) bool {
@@ -138,13 +159,14 @@ func wantsHelp(args []string) bool {
 }
 
 func main() {
+	argv := aliasArgs(os.Args[1:])
 	flag.Usage = func() { usage(flag.CommandLine.Output()) }
-	if wantsHelp(os.Args[1:]) { // asked for: stdout, so it pipes into less/grep
+	if wantsHelp(argv) { // asked for: stdout, so it pipes into less/grep
 		flag.CommandLine.SetOutput(os.Stdout)
 		flag.Usage()
 		return
 	}
-	flag.Parse()
+	flag.CommandLine.Parse(argv)
 	if *flagVer {
 		fmt.Println("vrf-ping", version)
 		return
