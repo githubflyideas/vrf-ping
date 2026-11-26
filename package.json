@@ -5,6 +5,6 @@
     "test": "node --test routing_browser.test.cjs login_capslock.test.cjs"
   },
   "devDependencies": {
-    "playwright": "1.62.1"
+    "playwright": "1.65.1"
   }
 }
